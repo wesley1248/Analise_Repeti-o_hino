@@ -13,14 +13,16 @@ A ferramenta possui as seguintes regras de negócio inteligentes:
 1. **Filtro de Duplicados no Mesmo Dia:** Se um número for registrado mais de uma vez na *mesma data*, o sistema conta apenas como **uma ocorrência** (ignora duplicados no mesmo dia, contando apenas a presença diária do número).
 2. **Correção Inteligente de Datas:** Corrige automaticamente pequenos erros de digitação nas datas da planilha (ex: `06/072026` sem a segunda barra é corrigido para `06/07/2026`).
 3. **Ordenação Automática:** Exibe os resultados consolidados ordenados de forma decrescente pela quantidade de ocorrências (do número mais frequente para o menos frequente).
+4. **Exportação Profissional em PDF:** Permite gerar relatórios em formato PDF com cabeçalho estatístico da consulta (período, arquivo de origem, totais) e tabela com formatação zebrada pronta para impressão ou compartilhamento.
 
 ---
 
 ## 🛠️ Tecnologias Utilizadas
 * **Windows Batch Script (CMD):** Responsável por orquestrar a inicialização, downloads e verificações de ambiente.
 * **Python 3:** Linguagem usada para construir o analisador.
-  * **Tkinter (GUI):** Interface gráfica nativa para entrada de datas e visualização de tabelas.
-  * **Openpyxl:** Biblioteca de baixo nível para leitura e escrita rápida de arquivos `.xlsx`.
+  * **Tkinter (GUI):** Interface gráfica nativa para entrada de datas, visualização de tabelas e ações.
+  * **Openpyxl:** Leitura e escrita rápida de arquivos `.xlsx`.
+  * **ReportLab:** Geração programática de relatórios PDF com tabelas estilizadas e cabeçalhos.
 * **Certutil (Nativo do Windows):** Ferramenta utilizada para decodificar o arquivo Python embutido no lote em formato Base64.
 * **Curl / PowerShell:** Ferramentas nativas do Windows usadas para baixar o instalador oficial do Python se necessário.
 
@@ -58,4 +60,5 @@ graph TD
 2. Dê **dois cliques** no `iniciar_analisador.bat`.
 3. Se você não possuir uma planilha modelo, clique no botão **"Criar Nova Planilha Modelo (.xlsx)"** dentro do programa para salvar um template formatado.
 4. Abra a planilha gerada, registre seus dados de número e data na aba `Lançamentos` e salve o arquivo.
-5. No programa, selecione o arquivo gerado, defina a **Data Inicial** e a **Data Final** do seu período de análise e clique em **Analisar Ocorrências**.
+5. No programa, selecione o arquivo gerado, defina a **Data Inicial** e a **Data Final** do seu período de análise e clique em **🔍 Analisar Ocorrências**.
+6. Para exportar ou imprimir os resultados, clique no botão **📄 Gerar Relatório PDF**, escolha onde deseja salvar e confirme se deseja abrir o relatório imediatamente.

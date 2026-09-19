@@ -2,9 +2,12 @@ import os
 import sys
 import traceback
 
-# Forçar o diretório de trabalho a ser a pasta onde o script está localizado
+# Forçar o diretório de trabalho a ser a pasta onde o script ou executável está localizado
 try:
-    script_dir = os.path.dirname(os.path.abspath(__file__))
+    if getattr(sys, 'frozen', False):
+        script_dir = os.path.dirname(os.path.abspath(sys.executable))
+    else:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
     os.chdir(script_dir)
 except Exception:
     pass
@@ -33,6 +36,24 @@ try:
         except Exception as e:
             raise ImportError(f"Falha ao instalar openpyxl via pip: {str(e)}")
 
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib import colors
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import cm
+    except ImportError:
+        print("Instalando biblioteca reportlab para geracao de PDF...")
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "reportlab"])
+            from reportlab.lib.pagesizes import A4
+            from reportlab.lib import colors
+            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib.units import cm
+        except Exception as e:
+            raise ImportError(f"Falha ao instalar reportlab via pip: {str(e)}")
+
     import tkinter as tk
     from tkinter import ttk, messagebox, filedialog
 except Exception as e:
@@ -45,17 +66,23 @@ class AnalisadorApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Analisador de Ocorrências Excel")
-        self.root.geometry("500x610")
+        self.root.geometry("540x630")
         self.root.configure(bg="#F5F6FA")
         
         # Centralizar a janela na tela
-        window_width = 500
-        window_height = 610
+        window_width = 540
+        window_height = 630
         screen_width = root.winfo_screenwidth()
         screen_height = root.winfo_screenheight()
         position_top = int(screen_height/2 - window_height/2)
         position_right = int(screen_width/2 - window_width/2)
         self.root.geometry(f'{window_width}x{window_height}+{position_right}+{position_top}')
+        
+        # Variáveis de estado para exportação em PDF
+        self.dados_analisados = []
+        self.meta_periodo_de = ""
+        self.meta_periodo_ate = ""
+        self.meta_arquivo = ""
         
         # Configurar Estilos Visuais ttk
         self.style = ttk.Style()
@@ -63,7 +90,7 @@ class AnalisadorApp:
         
         self.style.configure("TLabel", font=("Segoe UI", 10), background="#F5F6FA", foreground="#2F3542")
         self.style.configure("TButton", font=("Segoe UI", 10, "bold"), background="#2F3640", foreground="#FFFFFF")
-        self.style.map("TButton", background=[("active", "#353B48")])
+        self.style.map("TButton", background=[("active", "#353B48"), ("disabled", "#BDC3C7")], foreground=[("disabled", "#7F8C8D")])
         self.style.configure("Header.TLabel", font=("Segoe UI", 13, "bold"), background="#2F3640", foreground="#FFFFFF")
         
         # Banner de Cabeçalho
@@ -108,9 +135,17 @@ class AnalisadorApp:
         self.entry_ate.grid(row=1, column=1, sticky="ew", padx=(10, 0), pady=5)
         self.entry_ate.insert(0, "31/12/2026")
         
-        # 3. Botão de Execução
-        self.btn_analisar = ttk.Button(self.content_frame, text="Analisar Ocorrências", command=self.analisar)
-        self.btn_analisar.pack(fill="x", pady=10)
+        # 3. Botões de Ação (Analisar e Gerar PDF)
+        self.actions_frame = tk.Frame(self.content_frame, bg="#F5F6FA")
+        self.actions_frame.pack(fill="x", pady=10)
+        self.actions_frame.columnconfigure(0, weight=1)
+        self.actions_frame.columnconfigure(1, weight=1)
+        
+        self.btn_analisar = ttk.Button(self.actions_frame, text="🔍 Analisar Ocorrências", command=self.analisar)
+        self.btn_analisar.grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        
+        self.btn_pdf = ttk.Button(self.actions_frame, text="📄 Gerar Relatório PDF", command=self.gerar_pdf, state="disabled")
+        self.btn_pdf.grid(row=0, column=1, sticky="ew", padx=(4, 0))
         
         # 4. Tabela de Resultados
         ttk.Label(self.content_frame, text="Resultado da Análise (Ordenado pelas repetições):").pack(anchor="w", pady=3)
@@ -233,6 +268,9 @@ class AnalisadorApp:
         for item in self.tree.get_children():
             self.tree.delete(item)
             
+        self.dados_analisados = []
+        self.btn_pdf.config(state="disabled")
+            
         try:
             wb = openpyxl.load_workbook(filepath, data_only=True)
             ws = wb.active
@@ -280,11 +318,227 @@ class AnalisadorApp:
                 messagebox.showinfo("Informação", "Nenhum número foi encontrado dentro deste período de datas.")
                 return
                 
+            self.dados_analisados = resultados_ordenados
+            self.meta_periodo_de = de_str
+            self.meta_periodo_ate = ate_str
+            self.meta_arquivo = os.path.basename(filepath)
+            self.btn_pdf.config(state="normal")
+                
             for num, reps in resultados_ordenados:
                 self.tree.insert("", "end", values=(num, reps))
                 
         except Exception as e:
+            self.dados_analisados = []
+            self.btn_pdf.config(state="disabled")
             messagebox.showerror("Erro ao ler arquivo", f"Não foi possível processar o arquivo Excel:\n{str(e)}")
+
+    def gerar_pdf(self):
+        if not self.dados_analisados:
+            messagebox.showwarning("Aviso", "Não há dados analisados para gerar o relatório PDF.")
+            return
+
+        data_sugestao = datetime.now().strftime("%d-%m-%Y")
+        sugestao_nome = f"Relatorio_Ocorrencias_{data_sugestao}.pdf"
+        
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".pdf",
+            filetypes=[("Documentos PDF", "*.pdf")],
+            initialfile=sugestao_nome,
+            title="Salvar Relatório PDF"
+        )
+        if not filepath:
+            return
+
+        try:
+            # Configuração do Documento A4 com margens proporcionais
+            doc = SimpleDocTemplate(
+                filepath,
+                pagesize=A4,
+                leftMargin=1.8 * cm,
+                rightMargin=1.8 * cm,
+                topMargin=1.8 * cm,
+                bottomMargin=1.8 * cm
+            )
+
+            styles = getSampleStyleSheet()
+            
+            # Estilos Customizados
+            style_titulo = ParagraphStyle(
+                'TituloRelatorio',
+                parent=styles['Heading1'],
+                fontName='Helvetica-Bold',
+                fontSize=18,
+                leading=22,
+                textColor=colors.HexColor("#2F3640"),
+                alignment=1,
+                spaceAfter=4
+            )
+
+            style_subtitulo = ParagraphStyle(
+                'SubtituloRelatorio',
+                parent=styles['Normal'],
+                fontName='Helvetica',
+                fontSize=10,
+                leading=14,
+                textColor=colors.HexColor("#718093"),
+                alignment=1,
+                spaceAfter=10
+            )
+
+            style_meta_label = ParagraphStyle(
+                'MetaLabel',
+                parent=styles['Normal'],
+                fontName='Helvetica-Bold',
+                fontSize=9,
+                leading=12,
+                textColor=colors.HexColor("#2F3640")
+            )
+
+            style_meta_val = ParagraphStyle(
+                'MetaVal',
+                parent=styles['Normal'],
+                fontName='Helvetica',
+                fontSize=9,
+                leading=12,
+                textColor=colors.HexColor("#353B48")
+            )
+
+            style_th = ParagraphStyle(
+                'TableHeader',
+                parent=styles['Normal'],
+                fontName='Helvetica-Bold',
+                fontSize=10,
+                leading=13,
+                textColor=colors.white,
+                alignment=1
+            )
+
+            style_td = ParagraphStyle(
+                'TableCell',
+                parent=styles['Normal'],
+                fontName='Helvetica',
+                fontSize=9,
+                leading=12,
+                textColor=colors.HexColor("#2F3542"),
+                alignment=1
+            )
+
+            style_td_bold = ParagraphStyle(
+                'TableCellBold',
+                parent=styles['Normal'],
+                fontName='Helvetica-Bold',
+                fontSize=9,
+                leading=12,
+                textColor=colors.HexColor("#2F3640"),
+                alignment=1
+            )
+
+            elementos = []
+
+            # Cabeçalho Principal
+            elementos.append(Paragraph("RELATÓRIO DE OCORRÊNCIAS DE HINOS", style_titulo))
+            elementos.append(Paragraph("Consolidação estatística e ranking de repetições por período", style_subtitulo))
+            elementos.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#2F3640"), spaceAfter=12))
+
+            # Caixa de Metadados / Resumo da Consulta
+            agora_str = datetime.now().strftime("%d/%m/%Y às %H:%M:%S")
+            total_hinos = len(self.dados_analisados)
+            total_presencas = sum(reps for _, reps in self.dados_analisados)
+
+            dados_meta = [
+                [
+                    Paragraph("<b>Arquivo de Origem:</b>", style_meta_label),
+                    Paragraph(self.meta_arquivo, style_meta_val),
+                    Paragraph("<b>Data de Emissão:</b>", style_meta_label),
+                    Paragraph(agora_str, style_meta_val)
+                ],
+                [
+                    Paragraph("<b>Período Analisado:</b>", style_meta_label),
+                    Paragraph(f"{self.meta_periodo_de} até {self.meta_periodo_ate}", style_meta_val),
+                    Paragraph("<b>Total de Hinos:</b>", style_meta_label),
+                    Paragraph(f"{total_hinos} hinos ({total_presencas} execuções)", style_meta_val)
+                ]
+            ]
+
+            tabela_meta = Table(dados_meta, colWidths=[4.0 * cm, 4.7 * cm, 4.0 * cm, 4.7 * cm])
+            tabela_meta.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor("#F5F6FA")),
+                ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor("#DCDDE1")),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('TOPPADDING', (0, 0), (-1, -1), 6),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                ('LEFTPADDING', (0, 0), (-1, -1), 8),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+            ]))
+            elementos.append(tabela_meta)
+            elementos.append(Spacer(1, 14))
+
+            # Tabela de Resultados
+            tabela_dados = [
+                [
+                    Paragraph("Posição", style_th),
+                    Paragraph("Número do Hino", style_th),
+                    Paragraph("Total de Repetições", style_th)
+                ]
+            ]
+
+            for idx, (num, reps) in enumerate(self.dados_analisados, 1):
+                tabela_dados.append([
+                    Paragraph(f"{idx}º", style_td_bold),
+                    Paragraph(str(num), style_td),
+                    Paragraph(str(reps), style_td_bold)
+                ])
+
+            tabela_resultado = Table(tabela_dados, colWidths=[3.5 * cm, 7.5 * cm, 6.4 * cm], repeatRows=1)
+            
+            estilo_tabela = [
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#2F3640")),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('TOPPADDING', (0, 0), (-1, -1), 5),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#DCDDE1")),
+            ]
+
+            # Cores zebradas para linhas de dados
+            for i in range(1, len(tabela_dados)):
+                if i % 2 == 0:
+                    estilo_tabela.append(('BACKGROUND', (0, i), (-1, i), colors.HexColor("#F8F9FA")))
+                else:
+                    estilo_tabela.append(('BACKGROUND', (0, i), (-1, i), colors.white))
+
+            tabela_resultado.setStyle(TableStyle(estilo_tabela))
+            elementos.append(tabela_resultado)
+            
+            elementos.append(Spacer(1, 12))
+            elementos.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#DCDDE1"), spaceAfter=6))
+            
+            style_rodape = ParagraphStyle(
+                'RodapeRelatorio',
+                parent=styles['Normal'],
+                fontName='Helvetica-Oblique',
+                fontSize=8,
+                leading=10,
+                textColor=colors.HexColor("#718093"),
+                alignment=1
+            )
+            elementos.append(Paragraph("Relatório gerado automaticamente pelo Analisador de Ocorrências Excel", style_rodape))
+
+            # Construir o arquivo PDF
+            doc.build(elementos)
+
+            abrir = messagebox.askyesno(
+                "Sucesso",
+                f"Relatório PDF gerado com sucesso!\n\nSalvo em:\n{filepath}\n\nDeseja abrir o arquivo agora?"
+            )
+            if abrir:
+                try:
+                    os.startfile(filepath)
+                except Exception as e_open:
+                    messagebox.showwarning("Aviso", f"PDF gerado, mas não foi possível abrir automaticamente:\n{str(e_open)}")
+
+        except Exception as e:
+            messagebox.showerror("Erro ao Gerar PDF", f"Não foi possível salvar o relatório PDF:\n{str(e)}")
 
 if __name__ == "__main__":
     try:

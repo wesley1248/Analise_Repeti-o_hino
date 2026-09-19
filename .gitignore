@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.pdf
+erro_analisador.txt
+Modelo_Lancamentos.xlsx
+Planilha_Teste_*.xlsx
+
+# PyInstaller
+build/
+dist/
+*.spec
